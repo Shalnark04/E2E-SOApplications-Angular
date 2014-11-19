@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace Core.Common.Contracts
 {
-    public interface IAccountOwnedEntity
+    public interface IDirtyCapable
     {
     }
 }

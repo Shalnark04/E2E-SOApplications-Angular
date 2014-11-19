@@ -4,9 +4,12 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
+// Note that this class must essentially match CarRental.Business.Entities.Car.cs
+//  The namespaces do not match, so we work around that
+
 namespace CarRental.Client.Entities
 {
-    public class Car
+    public class Car 
     {
         private int _CarId;
         private string _Description;
