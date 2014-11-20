@@ -6,7 +6,8 @@ using System.Threading.Tasks;
 
 namespace Core.Common.Core
 {
-    public class NotNavigableAttribute
+    [AttributeUsage(AttributeTargets.Property)]
+    public class NotNavigableAttribute : Attribute
     {
     }
 }

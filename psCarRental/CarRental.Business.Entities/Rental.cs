@@ -47,7 +47,6 @@ namespace CarRental.Business.Entities
         int IAccountOwnedEntity.OwnerAccountId
         {
             get { return AccountId; }
-
         }
 
         #endregion
