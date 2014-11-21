@@ -26,10 +26,15 @@ namespace Core.Common.Extensions
                     if((property.PropertyType.IsSubclassOf(typeof(ObjectBase))
                         || property.PropertyType.GetInterface("IList") != null))
                     {
-                        //if(isbro)
+                        if(IsBrowsable(obj, property))
+                            propertyInfoList.Add(property);
                     }
                 }
+
+                BrowsablePropertyInfos.Add(key, propertyInfoList.ToArray());
             }
+
+            return BrowsablePropertyInfos[key];
         }
 
         public static bool IsBrowsable(this object obj, PropertyInfo property)

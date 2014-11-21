@@ -8,6 +8,7 @@ using Core.Common.Core;
 
 // Note that this class must essentially match CarRental.Business.Entities.Car.cs
 //  The namespaces do not match, so we work around that
+using FluentValidation;
 
 namespace CarRental.Client.Entities
 {
@@ -28,7 +29,6 @@ namespace CarRental.Client.Entities
                 if (_CarId != value)
                 {
                     _CarId = value;
-                    //OnPropertyChanged("CarId");
                     OnPropertyChanged(() => CarId);
                 }
             }
@@ -97,6 +97,22 @@ namespace CarRental.Client.Entities
                     OnPropertyChanged(() => CurrentlyRented);
                 }
             }
+        }
+
+        class CarValidator : AbstractValidator<Car>
+        {
+            public CarValidator()
+            {
+                RuleFor(c => c.Description).NotEmpty();
+                RuleFor(c => c.Color).NotEmpty();
+                RuleFor(c => c.RentalPrice).GreaterThan(0);
+                RuleFor(c => c.Year).GreaterThan(2000).LessThanOrEqualTo(DateTime.Now.Year);
+            }
+        }
+
+        protected override IValidator GetValidator()
+        {
+            return new CarValidator();
         }
     }
 }

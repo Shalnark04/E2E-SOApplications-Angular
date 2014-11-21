@@ -5,100 +5,49 @@ using System.ComponentModel;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Runtime.CompilerServices;
+using System.Runtime.Serialization;
 using System.Text;
-using System.Threading.Tasks;
-using Core.Common.Annotations;
 using Core.Common.Contracts;
 using Core.Common.Extensions;
 using Core.Common.Utils;
+using FluentValidation;
+using FluentValidation.Results;
+using System.ComponentModel.Composition.Hosting;
 
 namespace Core.Common.Core
 {
-    public class ObjectBase : INotifyPropertyChanged
+    public abstract class ObjectBase : NotificationObject, IDirtyCapable, IExtensibleDataObject, IDataErrorInfo
     {
-        private bool _IsDirty;
-        List<PropertyChangedEventHandler> _PropertyChangedSubscribers = 
-            new List<PropertyChangedEventHandler>(); 
-
-        private event PropertyChangedEventHandler _PropertyChanged;
-
-        public event PropertyChangedEventHandler PropertyChanged
+        public ObjectBase()
         {
-            add
-            {
-                if (!_PropertyChangedSubscribers.Contains(value))
-                {
-                    _PropertyChanged += value;
-                    _PropertyChangedSubscribers.Add(value);
-                }                
-            }
-            remove
-            {                
-                _PropertyChanged -= value;
-                _PropertyChangedSubscribers.Remove(value);
-            }
+            _Validator = GetValidator();
+            Validate();
         }
+        
+        protected bool _IsDirty;
+        protected IValidator _Validator = null;
 
-        protected virtual void OnPropertyChanged<T>(Expression<Func<T>> propertyExpression)
-        {
-            string propertyName = PropertySupport.ExtractPropertyName(propertyExpression);
-            OnPropertyChanged(propertyName);
-        }
+        protected IEnumerable<ValidationFailure> _ValidationErrors = null;
 
-        protected virtual void OnPropertyChanged(string propertyName)
-        {
-            OnPropertyChanged(propertyName, true);
-        }
+        public static CompositionContainer Container { get; set; }
 
-        protected virtual void OnPropertyChanged(string propertyName, bool makeDirty)
-        {
-            if (_PropertyChanged != null)
-            {
-                _PropertyChanged(this, new PropertyChangedEventArgs(propertyName));
-            }
+        #region IExtensibleDataObject Members
 
-            if (makeDirty)
-                _IsDirty = true;
-        }
+        public ExtensionDataObject ExtensionData { get; set; }
+
+        #endregion
+
+        #region IDirtyCapable members
 
         [NotNavigable]
-        public bool IsDirty
+        public virtual bool IsDirty
         {
             get { return _IsDirty; }
-            set { _IsDirty = value; }
-        }
-
-        public List<ObjectBase> GetDirtyObjects()
-        {
-            var dirtyObjects = new List<ObjectBase>();
-
-            WalkObjectGraph(
-                o =>
-                {
-                    if (o.IsDirty)
-                    {
-                        dirtyObjects.Add(o);
-                    }
-                    return false;
-                }, coll => 
-                { });
-
-            return dirtyObjects;
-        }
-
-        public void CleanAll()
-        {
-            WalkObjectGraph(
-                o =>
-                {
-                    if (o.IsDirty)
-                    {
-                        o.IsDirty = false;
-                    }
-                    return false;
-                }, coll =>
-                { });
+            protected set
+            {
+                _IsDirty = value;
+                OnPropertyChanged("IsDirty", false);
+            }
         }
 
         public virtual bool IsAnythingDirty()
@@ -111,36 +60,63 @@ namespace Core.Common.Core
                     if (o.IsDirty)
                     {
                         isDirty = true;
-                        return true; // short circuit
+                        return true;
                     }
                     else
-                    {
                         return false;
-                    }
-                }, coll =>
-                { });
+                }, coll => { });
 
             return isDirty;
         }
+
+        public List<IDirtyCapable> GetDirtyObjects()
+        {
+            List<IDirtyCapable> dirtyObjects = new List<IDirtyCapable>();
+
+            WalkObjectGraph(
+                o =>
+                {
+                    if(o.IsDirty)
+                        dirtyObjects.Add(o);
+
+                    return false;
+                }, coll => { });
+
+            return dirtyObjects;
+        }
+
+        public void CleanAll()
+        {
+            WalkObjectGraph(
+                o =>
+                {
+                    if (o.IsDirty)
+                        o.IsDirty = false;
+                    return false;
+                }, coll => { });
+        }
+
+        #endregion
+
+        #region Protected Methods
 
         protected void WalkObjectGraph(Func<ObjectBase, bool> snippetForObject,
             Action<IList> snippetForCollection,
             params string[] exemptProperties)
         {
-            var visited = new List<ObjectBase>();
-            Action<ObjectBase> walk = null; 
+            List<ObjectBase> visited = new List<ObjectBase>();
+            Action<ObjectBase> walk = null;
 
-            List<String> exemptions = new List<string>();
+            List<string> exemptions = new List<string>();
             if (exemptProperties != null)
-            {
                 exemptions = exemptProperties.ToList();
-            }
 
             walk = (o) =>
             {
                 if (o != null && !visited.Contains(o))
                 {
                     visited.Add(o);
+
                     bool exitWalk = snippetForObject.Invoke(o);
 
                     if (!exitWalk)
@@ -165,9 +141,7 @@ namespace Core.Common.Core
                                         foreach (object item in coll)
                                         {
                                             if (item is ObjectBase)
-                                            {
                                                 walk((ObjectBase) item);
-                                            }
                                         }
                                     }
                                 }
@@ -176,74 +150,100 @@ namespace Core.Common.Core
                     }
                 }
             };
+
+            walk(this);
         }
 
-        //protected List<ObjectBase> GetDirtyObjects()
-        //{
-        //    List<ObjectBase> dirtyObjects = new List<ObjectBase>();
+        #endregion
 
-        //    List<ObjectBase> visited = new List<ObjectBase>();
-        //    Action<ObjectBase> walk = null;
+        #region Property change notification
 
-        //    walk = (o) =>
-        //    {
-        //        if (o != null && !visited.Contains(o))
-        //        {
-        //            visited.Add(o);
-        //            if (o.IsDirty)
-        //            {
-        //                dirtyObjects.Add(o);
-        //            }
+        protected void OnPropertyChanged(string propertyName)
+        {
+            OnPropertyChanged(propertyName, true);
+        }
 
-        //            bool exitWalk = false;
+        protected void OnPropertyChanged<T>(Expression<Func<T>> propertyExpression, bool makeDirty)
+        {
+            string propertyName = PropertySupport.ExtractPropertyName(propertyExpression);
+            OnPropertyChanged(propertyName, makeDirty);
+        }
 
-        //            if (!exitWalk)
-        //            {
-        //                PropertyInfo[] properties = o.GetBrowsableProperties();
-        //                foreach (PropertyInfo property in properties)
-        //                {
-        //                    if (property.PropertyType.IsSubclassOf(typeof (ObjectBase)))
-        //                    {
-        //                        ObjectBase objectBase = (ObjectBase) (property.GetValue(o, null));
-        //                        walk(objectBase);
-        //                    }
-        //                    else
-        //                    {
-        //                        IList coll = property.GetValue(o, null) as IList;
-        //                        if (coll != null)
-        //                        {
-        //                            // in this instance, we don't want to do anything with 'coll' itself.
-        //                            foreach (object item in coll)
-        //                            {
-        //                                if (item is ObjectBase)
-        //                                {
-        //                                    walk((ObjectBase) item);
-        //                                }
-        //                            }
-        //                        }
-        //                    }
-        //                }
-        //            }
-        //        }
-        //    };
+        protected void OnPropertyChanged(string propertyName, bool makeDirty)
+        {
+            base.OnPropertyChanged(propertyName);
 
-        //    walk(this);
+            if (makeDirty)
+                IsDirty = true;
 
-        //    return dirtyObjects;
-        //}
+            Validate();
+        }
 
-        //public List<IDirtyCapable> GetDirtyObjects()
-        //{
-        //    List<IDirtyCapable> dirtyObjects = new List<IDirtyCapable>();
+        #endregion
 
-        //    WalkObjectGraph(o =>
-        //    {
-        //        if (o.IsDirty)
-        //        {
-        //            dirtyObjects.Add(o);
-        //        }
+        #region Validation
 
-        //    });
-        //} 
+        protected virtual IValidator GetValidator()
+        {
+            return null;
+        }
+
+        [NotNavigable]
+        public IEnumerable<ValidationFailure> ValidationErrors
+        {
+            get { return _ValidationErrors; }
+            set { }
+        }
+
+        public void Validate()
+        {
+            if (_Validator != null)
+            {
+                ValidationResult results = _Validator.Validate(this);
+                _ValidationErrors = results.Errors;
+            }
+        }
+
+        [NotNavigable]
+        public virtual bool IsValid
+        {
+            get
+            {
+                if (_ValidationErrors != null && _ValidationErrors.Count() > 0)
+                    return false;
+                else
+                    return true;
+            }
+        }
+
+        #endregion
+
+        #region IDataErrorInfo members
+
+        string IDataErrorInfo.Error
+        {
+            get { return string.Empty; }
+        }
+
+        string IDataErrorInfo.this[string columnName]
+        {
+            get
+            {
+                var errors = new StringBuilder();
+
+                if (_ValidationErrors != null && _ValidationErrors.Any())
+                {
+                    foreach (ValidationFailure validationError in _ValidationErrors)
+                    {
+                        if (validationError.PropertyName == columnName)
+                            errors.AppendLine(validationError.ErrorMessage);
+                    }
+                }
+
+                return errors.ToString();
+            }
+        }
+
+        #endregion
     }
 }
