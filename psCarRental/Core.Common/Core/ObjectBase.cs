@@ -158,7 +158,7 @@ namespace Core.Common.Core
 
         #region Property change notification
 
-        protected void OnPropertyChanged(string propertyName)
+        protected override void OnPropertyChanged(string propertyName)
         {
             OnPropertyChanged(propertyName, true);
         }
